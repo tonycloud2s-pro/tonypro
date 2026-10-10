@@ -1,0 +1,6 @@
+{
+  "name": "คำนวณกำไรโปรโมชั่นร้านอาหาร (Grab / Lineman)",
+  "description": "เว็บแอปคำนวณกำไรโปรโมชั่นร้านอาหาร Grab และ Lineman สำหรับเจ้าของร้านอาหารไทย คำนวณ GP, VAT, ต้นทุน และราคาต่ำสุดที่ไม่ขาดทุน",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
