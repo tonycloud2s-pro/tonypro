@@ -12,19 +12,23 @@ import {
   X,
   FileSpreadsheet,
 } from 'lucide-react';
-import { MenuItem } from '../lib/types';
+import { MenuAnalysisView } from './MenuAnalysisView';
+import { GlobalSettings, MenuItem } from '../lib/types';
 
 interface MenuTabProps {
   menu: MenuItem[];
   onUpdateMenu: (newMenu: MenuItem[]) => void;
   defaultPackagingCost: number;
+  settings: GlobalSettings;
 }
 
 export const MenuTab: React.FC<MenuTabProps> = ({
   menu,
   onUpdateMenu,
   defaultPackagingCost,
+  settings,
 }) => {
+  const [viewMode, setViewMode] = useState<'table' | 'analysis'>('table');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [editingItem, setEditingItem] = useState<MenuItem | null>(null);
@@ -136,18 +140,49 @@ export const MenuTab: React.FC<MenuTabProps> = ({
       {/* Top Header Strip */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-            <span>รายการอาหารและต้นทุน</span>
-            <span className="text-xs font-normal text-slate-500 dark:text-slate-400">
-              ({menu.length} รายการ)
-            </span>
-          </h2>
-          <p className="text-xs text-slate-500 dark:text-slate-400">
-            ระบุต้นทุนอาหารจริงต่อจานเพื่อคำนวณกำไรที่แม่นยำ
+          <div className="flex items-center gap-3">
+            <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+              <span>{viewMode === 'table' ? 'รายการอาหารและต้นทุน' : 'วิเคราะห์กำไรรายเมนู'}</span>
+              <span className="text-xs font-normal text-slate-500 dark:text-slate-400">
+                ({menu.length} รายการ)
+              </span>
+            </h2>
+
+            {/* View Mode Switcher */}
+            <div className="flex bg-slate-100 dark:bg-slate-800 p-0.5 rounded-xl text-xs">
+              <button
+                type="button"
+                onClick={() => setViewMode('table')}
+                className={`px-3 py-1 font-semibold rounded-lg transition-all ${
+                  viewMode === 'table'
+                    ? 'bg-emerald-600 text-white shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                }`}
+              >
+                รายการอาหาร
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('analysis')}
+                className={`px-3 py-1 font-semibold rounded-lg transition-all ${
+                  viewMode === 'analysis'
+                    ? 'bg-emerald-600 text-white shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                }`}
+              >
+                วิเคราะห์กำไรเมนู
+              </button>
+            </div>
+          </div>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+            {viewMode === 'table'
+              ? 'ระบุต้นทุนอาหารจริงต่อจานเพื่อคำนวณกำไรที่แม่นยำ'
+              : 'ตรวจเช็กกำไร อัตรา markup และจุดคุ้มทุนของทุกเมนูเมื่อจัดโปร'}
           </p>
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap">
+        {viewMode === 'table' && (
+          <div className="flex items-center gap-2 flex-wrap">
           <button
             onClick={() => setIsQuickCostModalOpen(true)}
             className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700/60 rounded-xl hover:bg-amber-100 transition-colors"
@@ -186,8 +221,13 @@ export const MenuTab: React.FC<MenuTabProps> = ({
             <span>เพิ่มเมนู</span>
           </button>
         </div>
+        )}
       </div>
 
+      {viewMode === 'analysis' ? (
+        <MenuAnalysisView menu={menu} settings={settings} />
+      ) : (
+        <>
       {/* Missing Cost Notice */}
       {missingCostCount > 0 && (
         <div className="bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800 rounded-xl p-3.5 flex items-center justify-between gap-3 text-rose-800 dark:text-rose-200">
@@ -477,6 +517,8 @@ export const MenuTab: React.FC<MenuTabProps> = ({
             })}
           </div>
         </div>
+      )}
+      </>
       )}
 
       {/* Edit / Add Modal */}

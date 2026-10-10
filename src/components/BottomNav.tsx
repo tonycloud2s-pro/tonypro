@@ -1,5 +1,5 @@
 import React from 'react';
-import { Calculator, BookmarkCheck, UtensilsCrossed, SlidersHorizontal, FolderDown } from 'lucide-react';
+import { Calculator, BookmarkCheck, FileText, UtensilsCrossed, SlidersHorizontal, FolderDown } from 'lucide-react';
 
 interface BottomNavProps {
   activeTab: string;
@@ -13,16 +13,17 @@ export const BottomNav: React.FC<BottomNavProps> = ({
   savedCount,
 }) => {
   const tabs = [
-    { id: 'calc', label: 'คำนวณโปร', icon: Calculator },
+    { id: 'calc', label: 'คำนวณ', icon: Calculator },
     { id: 'saved', label: 'โปรบันทึก', icon: BookmarkCheck, count: savedCount },
+    { id: 'analyzer', label: 'วิเคราะห์', icon: FileText },
     { id: 'menu', label: 'เมนู', icon: UtensilsCrossed },
     { id: 'settings', label: 'ตั้งค่า', icon: SlidersHorizontal },
-    { id: 'backup', label: 'สำรอง/คู่มือ', icon: FolderDown },
+    { id: 'backup', label: 'สำรอง', icon: FolderDown },
   ];
 
   return (
     <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 transition-colors">
-      <div className="grid grid-cols-5 h-16 max-w-lg mx-auto px-1">
+      <div className="grid grid-cols-6 h-16 max-w-lg mx-auto px-0.5">
         {tabs.map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;

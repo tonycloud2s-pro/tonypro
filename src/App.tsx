@@ -4,6 +4,7 @@ import { BottomNav } from './components/BottomNav';
 import { CalculatorTab } from './components/CalculatorTab';
 import { SavedPromosTab } from './components/SavedPromosTab';
 import { MenuTab } from './components/MenuTab';
+import { PromoAnalyzerTab } from './components/PromoAnalyzerTab';
 import { SettingsTab } from './components/SettingsTab';
 import { ImportExportTab } from './components/ImportExportTab';
 import {
@@ -131,11 +132,24 @@ export default function App() {
           />
         )}
 
+        {activeTab === 'analyzer' && (
+          <PromoAnalyzerTab
+            settings={settings}
+            menu={menu}
+            savedPromos={savedPromos}
+            onNavigateToMenu={() => {
+              setActiveTab('menu');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+          />
+        )}
+
         {activeTab === 'menu' && (
           <MenuTab
             menu={menu}
             onUpdateMenu={handleUpdateMenu}
             defaultPackagingCost={settings.defaultPackagingCost}
+            settings={settings}
           />
         )}
 

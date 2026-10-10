@@ -10,11 +10,26 @@ import {
   BookOpen,
   ArrowRight,
   RefreshCw,
+  FileDown,
+  Sparkles,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import Papa from 'papaparse';
+import {
+  autoMapColumns,
+  ColumnMappingConfig,
+  downloadValidationReportCsv,
+  findHeaderRowIndex,
+  parseImportData,
+} from '../lib/importer';
 import { downloadCsvTemplate, exportBackup } from '../lib/storage';
-import { BackupData, GlobalSettings, MenuItem, SavedPromo } from '../lib/types';
+import {
+  BackupData,
+  GlobalSettings,
+  ImportReport,
+  MenuItem,
+  SavedPromo,
+} from '../lib/types';
 
 interface ImportExportTabProps {
   settings: GlobalSettings;
@@ -23,17 +38,6 @@ interface ImportExportTabProps {
   onUpdateSettings: (newSettings: GlobalSettings) => void;
   onUpdateMenu: (newMenu: MenuItem[]) => void;
   onUpdateSavedPromos: (newPromos: SavedPromo[]) => void;
-}
-
-interface ColumnMapping {
-  groupName: string;
-  variant: string;
-  category: string;
-  dineInPrice: string;
-  grabPrice: string;
-  linemanPrice: string;
-  foodCost: string;
-  packagingCost: string;
 }
 
 export const ImportExportTab: React.FC<ImportExportTabProps> = ({
@@ -50,16 +54,19 @@ export const ImportExportTab: React.FC<ImportExportTabProps> = ({
   const [sheetNames, setSheetNames] = useState<string[]>([]);
   const [selectedSheet, setSelectedSheet] = useState<string>('');
   const [workbookRef, setWorkbookRef] = useState<XLSX.WorkBook | null>(null);
-  const [importMode, setImportMode] = useState<'append' | 'replace'>('append');
-  const [importStatus, setImportStatus] = useState<{
-    success?: boolean;
-    message?: string;
-    skippedCount?: number;
-    importedCount?: number;
-    issues?: string[];
-  } | null>(null);
 
-  const [columnMapping, setColumnMapping] = useState<ColumnMapping>({
+  // Import options
+  const [importMode, setImportMode] = useState<'append' | 'replace'>('append');
+  const [duplicateAction, setDuplicateAction] = useState<'skip' | 'update' | 'keep_both'>('skip');
+  const [useMarkupEstimator, setUseMarkupEstimator] = useState<boolean>(false);
+  const [markupMultiplier, setMarkupMultiplier] = useState<number>(1.28);
+
+  // Validation Report state
+  const [lastReport, setLastReport] = useState<ImportReport | null>(null);
+  const [parsedPreviewItems, setParsedPreviewItems] = useState<MenuItem[]>([]);
+  const [importCompletedMessage, setImportCompletedMessage] = useState<string | null>(null);
+
+  const [columnMapping, setColumnMapping] = useState<ColumnMappingConfig>({
     groupName: '',
     variant: '',
     category: '',
@@ -68,50 +75,17 @@ export const ImportExportTab: React.FC<ImportExportTabProps> = ({
     linemanPrice: '',
     foodCost: '',
     packagingCost: '',
+    addOnPrice: '',
+    addOnCost: '',
   });
-
-  // Auto-detect columns based on header names
-  const autoDetectColumns = (headers: string[]) => {
-    const mapping: ColumnMapping = {
-      groupName: '',
-      variant: '',
-      category: '',
-      dineInPrice: '',
-      grabPrice: '',
-      linemanPrice: '',
-      foodCost: '',
-      packagingCost: '',
-    };
-
-    headers.forEach((h) => {
-      const lower = h.toLowerCase().trim();
-      if (!mapping.groupName && (lower.includes('ชื่อ') || lower.includes('เมนู') || lower.includes('name') || lower.includes('item'))) {
-        mapping.groupName = h;
-      } else if (!mapping.variant && (lower.includes('ตัวเลือก') || lower.includes('ส่วนผสม') || lower.includes('variant') || lower.includes('option'))) {
-        mapping.variant = h;
-      } else if (!mapping.category && (lower.includes('หมวด') || lower.includes('category') || lower.includes('ประเภท'))) {
-        mapping.category = h;
-      } else if (!mapping.dineInPrice && (lower.includes('หน้าร้าน') || lower.includes('dine') || lower.includes('ปกติ') || lower.includes('ราคา'))) {
-        mapping.dineInPrice = h;
-      } else if (!mapping.grabPrice && (lower.includes('grab') || lower.includes('แกร็บ'))) {
-        mapping.grabPrice = h;
-      } else if (!mapping.linemanPrice && (lower.includes('line') || lower.includes('man') || lower.includes('ไลน์แมน'))) {
-        mapping.linemanPrice = h;
-      } else if (!mapping.foodCost && (lower.includes('อาหาร') || lower.includes('ต้นทุน') || lower.includes('cost'))) {
-        mapping.foodCost = h;
-      } else if (!mapping.packagingCost && (lower.includes('กล่อง') || lower.includes('บรรจุ') || lower.includes('pack'))) {
-        mapping.packagingCost = h;
-      }
-    });
-
-    setColumnMapping(mapping);
-  };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    setImportStatus(null);
+    setLastReport(null);
+    setImportCompletedMessage(null);
+    setParsedPreviewItems([]);
     const fileName = file.name.toLowerCase();
 
     if (fileName.endsWith('.csv')) {
@@ -119,15 +93,16 @@ export const ImportExportTab: React.FC<ImportExportTabProps> = ({
         header: false,
         skipEmptyLines: true,
         complete: (results) => {
-          const rows = results.data as string[][];
-          if (rows.length > 0) {
-            const rawHeaders = rows[0].map((h) => String(h || '').trim());
+          const allRows = results.data as string[][];
+          if (allRows.length > 0) {
+            const hIdx = findHeaderRowIndex(allRows);
+            const rawHeaders = allRows[hIdx].map((h) => String(h || '').trim());
             setFileHeaders(rawHeaders);
-            setFileRawData(rows.slice(1));
+            setFileRawData(allRows.slice(hIdx + 1));
             setSheetNames(['CSV']);
             setSelectedSheet('CSV');
             setWorkbookRef(null);
-            autoDetectColumns(rawHeaders);
+            setColumnMapping(autoMapColumns(rawHeaders));
           }
         },
       });
@@ -137,7 +112,7 @@ export const ImportExportTab: React.FC<ImportExportTabProps> = ({
       reader.onload = (evt) => {
         try {
           const data = new Uint8Array(evt.target?.result as ArrayBuffer);
-          const workbook = XLSX.read(data, { type: 'array' });
+          const workbook = XLSX.read(data, { type: 'array', cellFormula: true });
           setWorkbookRef(workbook);
           setSheetNames(workbook.SheetNames);
 
@@ -157,12 +132,14 @@ export const ImportExportTab: React.FC<ImportExportTabProps> = ({
     const worksheet = workbook.Sheets[sheetName];
     if (!worksheet) return;
 
-    const json = XLSX.utils.sheet_to_json<string[]>(worksheet, { header: 1 });
+    // Use raw: false so cached formula results and formatted text are preserved
+    const json = XLSX.utils.sheet_to_json<any[]>(worksheet, { header: 1, raw: false });
     if (json.length > 0) {
-      const rawHeaders = (json[0] || []).map((h) => String(h || '').trim());
+      const hIdx = findHeaderRowIndex(json);
+      const rawHeaders = (json[hIdx] || []).map((h) => String(h || '').trim());
       setFileHeaders(rawHeaders);
-      setFileRawData(json.slice(1));
-      autoDetectColumns(rawHeaders);
+      setFileRawData(json.slice(hIdx + 1));
+      setColumnMapping(autoMapColumns(rawHeaders));
     } else {
       setFileHeaders([]);
       setFileRawData([]);
@@ -178,92 +155,41 @@ export const ImportExportTab: React.FC<ImportExportTabProps> = ({
 
   const handleExecuteImport = () => {
     if (!columnMapping.groupName) {
-      alert('กรุณาเลือกคอลัมน์ "ชื่อเมนู" เป็นอย่างน้อย');
-      return;
-    }
-
-    const nameIdx = fileHeaders.indexOf(columnMapping.groupName);
-    const variantIdx = fileHeaders.indexOf(columnMapping.variant);
-    const catIdx = fileHeaders.indexOf(columnMapping.category);
-    const dineIdx = fileHeaders.indexOf(columnMapping.dineInPrice);
-    const grabIdx = fileHeaders.indexOf(columnMapping.grabPrice);
-    const lineIdx = fileHeaders.indexOf(columnMapping.linemanPrice);
-    const foodCostIdx = fileHeaders.indexOf(columnMapping.foodCost);
-    const packCostIdx = fileHeaders.indexOf(columnMapping.packagingCost);
-
-    const newItems: MenuItem[] = [];
-    const issues: string[] = [];
-    let skippedCount = 0;
-
-    fileRawData.forEach((row, rowIndex) => {
-      const rawName = String(row[nameIdx] || '').trim();
-      if (!rawName) {
-        skippedCount++;
-        return;
-      }
-
-      // Parse numbers
-      const parseNum = (val: any) => {
-        if (val === undefined || val === null || val === '') return null;
-        const cleaned = String(val).replace(/,/g, '').trim();
-        const num = parseFloat(cleaned);
-        return isNaN(num) ? null : num;
-      };
-
-      const dineIn = dineIdx >= 0 ? parseNum(row[dineIdx]) : 0;
-      const grab = grabIdx >= 0 ? parseNum(row[grabIdx]) : null;
-      const lineman = lineIdx >= 0 ? parseNum(row[lineIdx]) : null;
-      const foodCost = foodCostIdx >= 0 ? parseNum(row[foodCostIdx]) : null;
-      const packCost = packCostIdx >= 0 ? parseNum(row[packCostIdx]) : null;
-
-      if (dineIn === null && grab === null && lineman === null) {
-        issues.push(`แถวที่ ${rowIndex + 2} (${rawName}): ข้ามเนื่องจากไม่มีราคาที่ระบุเป็นตัวเลข`);
-        skippedCount++;
-        return;
-      }
-
-      if ((dineIn !== null && dineIn < 0) || (grab !== null && grab < 0) || (lineman !== null && lineman < 0)) {
-        issues.push(`แถวที่ ${rowIndex + 2} (${rawName}): ราคาติดลบ ถูกปรับเป็น 0`);
-      }
-
-      const itemDineIn = Math.max(0, dineIn ?? 0);
-      const itemGrab = Math.max(0, grab ?? itemDineIn);
-      const itemLineman = Math.max(0, lineman ?? itemDineIn);
-
-      newItems.push({
-        id: 'imported-' + Date.now() + '-' + rowIndex + '-' + Math.random().toString(36).substr(2, 4),
-        groupName: rawName,
-        variant: variantIdx >= 0 ? String(row[variantIdx] || 'ปกติ').trim() : 'ปกติ',
-        category: catIdx >= 0 ? String(row[catIdx] || 'ทั่วไป').trim() : 'ทั่วไป',
-        dineInPrice: itemDineIn,
-        grabPrice: itemGrab,
-        linemanPrice: itemLineman,
-        foodCost: foodCost !== null && foodCost >= 0 ? foodCost : null,
-        packagingCost: packCost !== null && packCost >= 0 ? packCost : settings.defaultPackagingCost,
-        isSample: false,
-      });
-    });
-
-    if (newItems.length === 0) {
-      alert('ไม่พบแถวข้อมูลที่สามารถนำเข้าได้');
+      alert('กรุณาเลือกคอลัมน์ "ชื่อเมนู" ก่อนดำเนินการ');
       return;
     }
 
     if (importMode === 'replace') {
-      onUpdateMenu(newItems);
-    } else {
-      onUpdateMenu([...menu, ...newItems]);
+      const confirmReplace = window.confirm(
+        '⚠️ คำเตือน: คุณเลือก "แทนที่เมนูทั้งหมด" รายการอาหารปัจจุบันจะถูกลบและแทนที่ด้วยไฟล์นี้\n\nแนะนำให้ดาวน์โหลดไฟล์สำรอง (JSON) เก็บไว้ก่อน\nคุณต้องการดำเนินการต่อหรือไม่?'
+      );
+      if (!confirmReplace) return;
     }
 
-    setImportStatus({
-      success: true,
-      message: `นำเข้าข้อมูลเมนูสำเร็จจำนวน ${newItems.length} รายการ`,
-      importedCount: newItems.length,
-      skippedCount,
-      issues: issues.slice(0, 10),
+    const { itemsToImport, report } = parseImportData({
+      headers: fileHeaders,
+      rows: fileRawData,
+      mapping: columnMapping,
+      defaultPackagingCost: settings.defaultPackagingCost,
+      markupMultiplier: useMarkupEstimator ? markupMultiplier : undefined,
+      duplicateAction,
+      existingMenu: importMode === 'replace' ? [] : menu,
     });
 
-    // Reset file preview
+    if (itemsToImport.length === 0) {
+      alert('ไม่พบแถวข้อมูลที่สามารถนำเข้าได้ ตรวจสอบรายงานสาเหตุในหน้าจอ');
+      setLastReport(report);
+      return;
+    }
+
+    if (importMode === 'replace') {
+      onUpdateMenu(itemsToImport);
+    } else {
+      onUpdateMenu([...menu, ...itemsToImport]);
+    }
+
+    setLastReport(report);
+    setImportCompletedMessage(`นำเข้าเมนูสำเร็จจำนวน ${itemsToImport.length} รายการ`);
     setFileRawData([]);
     setFileHeaders([]);
   };
@@ -284,7 +210,11 @@ export const ImportExportTab: React.FC<ImportExportTabProps> = ({
           return;
         }
 
-        if (window.confirm(`พบข้อมูลในไฟล์สำรอง:\n- เมนู: ${parsed.menu.length} รายการ\n- โปรที่บันทึกไว้: ${parsed.savedPromos?.length || 0} รายการ\n\nต้องการนำเข้าข้อมูลสำรองและแทนที่ข้อมูลปัจจุบันใช่หรือไม่?`)) {
+        if (
+          window.confirm(
+            `พบข้อมูลในไฟล์สำรอง:\n- เมนู: ${parsed.menu.length} รายการ\n- โปรที่บันทึกไว้: ${parsed.savedPromos?.length || 0} รายการ\n\nต้องการนำเข้าข้อมูลสำรองและแทนที่ข้อมูลปัจจุบันใช่หรือไม่?`
+          )
+        ) {
           if (parsed.settings) onUpdateSettings(parsed.settings);
           if (parsed.menu) onUpdateMenu(parsed.menu);
           if (parsed.savedPromos) onUpdateSavedPromos(parsed.savedPromos);
@@ -391,22 +321,22 @@ export const ImportExportTab: React.FC<ImportExportTabProps> = ({
         </div>
       </div>
 
-      {/* Excel & CSV Menu Import */}
+      {/* Excel & CSV Menu Import (Task 3A) */}
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5 shadow-xs space-y-5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <h2 className="text-base font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
               <FileSpreadsheet className="w-5 h-5 text-emerald-600" />
-              <span>นำเข้าเมนูจากไฟล์ Excel (.xlsx) หรือ CSV</span>
+              <span>นำเข้าเมนูจากไฟล์ Excel (.xlsx, .xls) หรือ CSV</span>
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              นำเข้ารายการอาหารทั้งหมดของร้านได้ในครั้งเดียว พร้อมระบบจับคู่คอลัมน์อัตโนมัติ
+              นำเข้ารายการอาหารทั้งหมดของร้านได้ในครั้งเดียว พร้อมระบบตรวจจับหัวตารางอัจฉริยะและรายงานข้อผิดพลาด
             </p>
           </div>
 
           <button
             onClick={downloadCsvTemplate}
-            className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-xl hover:bg-emerald-100 transition-colors shrink-0"
+            className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-xl hover:bg-emerald-100 transition-colors shrink-0"
           >
             <Download className="w-3.5 h-3.5" />
             <span>ดาวน์โหลดเทมเพลต CSV</span>
@@ -430,53 +360,67 @@ export const ImportExportTab: React.FC<ImportExportTabProps> = ({
               <Upload className="w-6 h-6" />
             </div>
             <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-              กดเลือกไฟล์ Excel (.xlsx) หรือ CSV
+              กดเลือกไฟล์ Excel (.xlsx, .xls) หรือ CSV
             </span>
             <span className="text-xs text-slate-500">
-              รองรับไฟล์ Excel ของร้าน (เช่น ชีต "Grab - Lineman") ประมวลผลในเบราว์เซอร์ 100%
+              รองรับสูตรในตาราง, แถวหัวตารางซ้อน, ตัวเลขติดเครื่องหมาย ฿ หรือลูกน้ำ
             </span>
           </label>
         </div>
 
-        {/* Import Status Alert */}
-        {importStatus && (
-          <div
-            className={`p-4 rounded-xl border flex items-start gap-3 ${
-              importStatus.success
-                ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200'
-                : 'bg-rose-50 dark:bg-rose-950/30 border-rose-300 dark:border-rose-800 text-rose-900 dark:text-rose-200'
-            }`}
-          >
-            {importStatus.success ? (
-              <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
-            ) : (
-              <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
-            )}
-            <div className="text-xs sm:text-sm space-y-1">
-              <p className="font-semibold">{importStatus.message}</p>
-              {importStatus.skippedCount !== undefined && importStatus.skippedCount > 0 && (
-                <p className="text-slate-600 dark:text-slate-400">
-                  ข้ามแถวที่ไม่มีข้อมูลราคาหรือว่างเปล่า: {importStatus.skippedCount} แถว
-                </p>
-              )}
-              {importStatus.issues && importStatus.issues.length > 0 && (
-                <div className="text-[11px] text-slate-600 dark:text-slate-400 pt-1">
-                  <span className="font-medium">ข้อสังเกต:</span>
-                  <ul className="list-disc pl-4 space-y-0.5">
-                    {importStatus.issues.map((iss, i) => (
-                      <li key={i}>{iss}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
+        {/* Import Completed Alert */}
+        {importCompletedMessage && (
+          <div className="p-4 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200 rounded-xl flex items-center justify-between text-xs sm:text-sm">
+            <div className="flex items-center gap-2 font-semibold">
+              <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+              <span>{importCompletedMessage}</span>
             </div>
+          </div>
+        )}
+
+        {/* Validation Report Banner & Download button */}
+        {lastReport && (
+          <div className="p-4 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div className="font-bold text-xs sm:text-sm text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                <Info className="w-4 h-4 text-emerald-600" />
+                <span>
+                  รายงานการตรวจสอบไฟล์: นำเข้าสำเร็จ {lastReport.importedCount} แถว (ข้าม {lastReport.skippedRows.length} แถว, มีข้อสังเกต {lastReport.warnings.length} รายการ)
+                </span>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => downloadValidationReportCsv(lastReport)}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-50 rounded-lg text-xs font-semibold shrink-0"
+              >
+                <FileDown className="w-3.5 h-3.5 text-emerald-600" />
+                <span>ดาวน์โหลดรายงานข้อผิดพลาด (CSV)</span>
+              </button>
+            </div>
+
+            {lastReport.skippedRows.length > 0 && (
+              <div className="text-[11px] text-rose-700 dark:text-rose-400 space-y-0.5">
+                <span className="font-semibold block">รายการที่ถูกข้าม:</span>
+                <ul className="list-disc pl-4 space-y-0.5">
+                  {lastReport.skippedRows.slice(0, 5).map((sr, idx) => (
+                    <li key={idx}>
+                      แถวที่ {sr.rowNumber} {sr.rawName ? `(${sr.rawName})` : ''}: {sr.reason}
+                    </li>
+                  ))}
+                  {lastReport.skippedRows.length > 5 && (
+                    <li>... และรายการอื่นอีก {lastReport.skippedRows.length - 5} แถว (ดูได้ในไฟล์รายงาน CSV)</li>
+                  )}
+                </ul>
+              </div>
+            )}
           </div>
         )}
 
         {/* Preview and Column Mapping Section */}
         {fileHeaders.length > 0 && (
           <div className="space-y-4 pt-4 border-t border-slate-100 dark:border-slate-800">
-            {/* Sheet Selector if multiple sheets */}
+            {/* Sheet Selector */}
             {sheetNames.length > 1 && (
               <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-800 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700">
                 <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
@@ -499,13 +443,13 @@ export const ImportExportTab: React.FC<ImportExportTabProps> = ({
             {/* Column Mapping Grid */}
             <div>
               <h3 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100 mb-2">
-                จับคู่หัวคอลัมน์ในไฟล์ของคุณกับข้อมูลระบบ:
+                จับคู่หัวคอลัมน์ในไฟล์ของคุณกับข้อมูลระบบ (จับคู่อัตโนมัติแล้ว):
               </h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                 {/* Menu Name */}
                 <div>
                   <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    ชื่อกลุ่มเมนู *
+                    ชื่อเมนู *
                   </label>
                   <select
                     value={columnMapping.groupName}
@@ -524,7 +468,7 @@ export const ImportExportTab: React.FC<ImportExportTabProps> = ({
                 {/* Variant */}
                 <div>
                   <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    ตัวเลือก / ไส้ / ขนาด
+                    ตัวเลือก / เนื้อสัตว์ / ขนาด
                   </label>
                   <select
                     value={columnMapping.variant}
@@ -562,7 +506,7 @@ export const ImportExportTab: React.FC<ImportExportTabProps> = ({
                 {/* Dine in price */}
                 <div>
                   <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    ราคาหน้าร้าน
+                    ราคาหน้าร้าน *
                   </label>
                   <select
                     value={columnMapping.dineInPrice}
@@ -656,6 +600,60 @@ export const ImportExportTab: React.FC<ImportExportTabProps> = ({
               </div>
             </div>
 
+            {/* Advanced Import Options: Markup estimator & duplicate handling (Task 3A.5 & 3A.6) */}
+            <div className="p-4 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-3">
+              <span className="text-xs font-bold text-slate-900 dark:text-slate-100 block">
+                ตัวเลือกขั้นสูงสำหรับการนำเข้า:
+              </span>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                {/* Duplicate strategy */}
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    การจัดการเมื่อพบเมนูซ้ำ (ชื่อและตัวเลือกเดิม):
+                  </label>
+                  <select
+                    value={duplicateAction}
+                    onChange={(e) => setDuplicateAction(e.target.value as any)}
+                    className="w-full h-9 px-2 text-xs rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
+                  >
+                    <option value="skip">ข้ามเมนูที่ซ้ำ (ไม่นำเข้าซ้ำ)</option>
+                    <option value="keep_both">เก็บไว้ทั้งคู่</option>
+                  </select>
+                </div>
+
+                {/* Markup Helper */}
+                <div className="space-y-1.5">
+                  <label className="flex items-center gap-2 cursor-pointer font-semibold text-slate-700 dark:text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={useMarkupEstimator}
+                      onChange={(e) => setUseMarkupEstimator(e.target.checked)}
+                      className="rounded text-emerald-600"
+                    />
+                    <span>หากไม่มีราคา Grab / LINE MAN ให้ตั้งราคาแอปประมาณ</span>
+                  </label>
+                  {useMarkupEstimator && (
+                    <div className="flex items-center gap-2 pl-5">
+                      <span className="text-slate-500">= ราคาหน้าร้าน ×</span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="1"
+                        max="3"
+                        value={markupMultiplier}
+                        onChange={(e) => setMarkupMultiplier(parseFloat(e.target.value) || 1.28)}
+                        className="w-20 h-8 px-2 text-xs font-mono font-bold rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700"
+                      />
+                      <span className="text-[11px] text-slate-400">
+                        (จะติดป้าย "ประมาณ" ในตาราง)
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
             {/* Table Preview (10 rows) */}
             <div>
               <div className="text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">
@@ -691,7 +689,7 @@ export const ImportExportTab: React.FC<ImportExportTabProps> = ({
 
             {/* Action Bar */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3">
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-4">
                 <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-slate-700 dark:text-slate-300">
                   <input
                     type="radio"
@@ -712,7 +710,7 @@ export const ImportExportTab: React.FC<ImportExportTabProps> = ({
                     onChange={() => setImportMode('replace')}
                     className="text-emerald-600"
                   />
-                  <span>แทนที่เมนูทั้งหมด</span>
+                  <span className="text-rose-600 dark:text-rose-400 font-semibold">แทนที่เมนูทั้งหมด</span>
                 </label>
               </div>
 

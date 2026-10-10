@@ -17,6 +17,7 @@ export const Header: React.FC<HeaderProps> = ({
   const navItems = [
     { id: 'calc', label: 'คำนวณโปร' },
     { id: 'saved', label: 'โปรที่บันทึกไว้' },
+    { id: 'analyzer', label: 'วิเคราะห์โปรแอป' },
     { id: 'menu', label: 'เมนูอาหาร' },
     { id: 'settings', label: 'ตั้งค่า' },
     { id: 'backup', label: 'นำเข้า/สำรองข้อมูล' },
