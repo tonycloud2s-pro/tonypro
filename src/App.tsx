@@ -20,9 +20,16 @@ import { GlobalSettings, MenuItem, SavedPromo } from './lib/types';
 export default function App() {
   // Theme state
   const [darkMode, setDarkMode] = useState<boolean>(() => {
-    const saved = localStorage.getItem('rest_promo_calc_theme');
-    if (saved) return saved === 'dark';
-    return window.matchMedia('(prefers-color-scheme: dark)').matches;
+    try {
+      const saved = localStorage.getItem('rest_promo_calc_theme');
+      if (saved) return saved === 'dark';
+      if (typeof window !== 'undefined' && window.matchMedia) {
+        return window.matchMedia('(prefers-color-scheme: dark)').matches;
+      }
+    } catch {
+      // fallback
+    }
+    return false;
   });
 
   // Tab state
