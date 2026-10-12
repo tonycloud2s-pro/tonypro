@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",
-    "build": "vite build",
+    "build": "vite build && touch dist/.nojekyll && mkdir -p docs && cp dist/index.html docs/index.html && touch docs/.nojekyll",
     "test": "vitest run",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",

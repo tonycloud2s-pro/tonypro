@@ -88,12 +88,15 @@ npm run build
 2. อัปโหลดโค้ดทั้งหมดขึ้น Branch `main` หรือ `master`
 3. ไปที่ GitHub Repository ของคุณ:
    - เมนู **Settings** → เมนูย่อย **Pages**
-   - ในหัวข้อ **Build and deployment** > **Source**: เลือกเป็น **GitHub Actions**
-4. ระบบจะรันไฟล์ `.github/workflows/deploy.yml` ให้อัตโนมัติ เมื่อเสร็จแล้วคุณจะได้รับลิงก์เว็บสำหรับเปิดใช้งานได้ฟรี 24 ชม. ทั้งบนมือถือและคอมพิวเตอร์
+   - ในหัวข้อ **Build and deployment** > **Source**:
+     - **วิธีที่แนะนำที่สุด (สำเร็จทันที)**: เลือก **`Deploy from a branch`** → Branch: **`main`** (หรือ `master`) → โฟลเดอร์: **`/docs`** → กด **Save**
+     - **หรือวิธีใช้ GitHub Actions**: เลือก Source เป็น **`GitHub Actions`** แล้วรอ workflow รันเสร็จ
+4. รอประมาณ 30-60 วินาที จะได้ลิงก์เว็บสำหรับเปิดใช้งานได้ฟรี 24 ชม. ทั้งบนมือถือและคอมพิวเตอร์!
 
 ### ⚠️ กรณีเปิดหน้าเว็บแล้วเจอหน้าจอขาว (Blank Page Troubleshooting)
-- **ตรวจการตั้งค่า Source**: ไปที่ Settings → Pages ใน GitHub ต้องเลือก Source เป็น **"GitHub Actions"** เท่านั้น (ห้ามเลือก Deploy from a branch เพราะจะเสิร์ฟไฟล์ต้นฉบับผิดโฟลเดอร์)
-- **ประเภท Repository**: สำหรับบัญชี GitHub แบบฟรี Repository ต้องตั้งเป็น **Public** เท่านั้นจึงจะใช้ Pages ได้ฟรี
+- **หากเลือก Source เป็น Deploy from a branch**: ให้ตรวจดูว่าเลือกโฟลเดอร์เป็น **`/docs`** หรือไม่ (หากเผลอเลือก `/(root)` ตัวระบบจะ redirect ไปยัง `/docs/index.html` ให้อัตโนมัติ แต่แนะนำให้เลือกโฟลเดอร์ `/docs` ใน Settings จะดีที่สุด)
+- **หากเลือก Source เป็น GitHub Actions**: อย่าลืมเปิดสิทธิ์ Workflow permissions เป็น "Read and write permissions" ใน Settings → Actions → General
+- **ประเภท Repository**: สำหรับบัญชี GitHub แบบฟรี Repository ต้องตั้งเป็น **Public** เท่านั้นจึงจะใช้ Pages ได้ฟรี (ถ้า Private ต้องอัปเกรดแผน)
 - **ตรวจสอบ Console**: หากหน้าจอยังคงขาว ให้กดปุ่ม `F12` ในเบราว์เซอร์ แล้วเลือกแท็บ **Console** เพื่อดูข้อความแจ้งเตือนสีแดง และสามารถกดส่งออกข้อมูลสำรองผ่านหน้าจอ Error Boundary ได้
 
 ---

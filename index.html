@@ -9,6 +9,19 @@
     <meta property="og:description" content="เว็บแอปคำนวณกำไรโปรโมชั่นร้านอาหาร Grab และ Lineman สำหรับเจ้าของร้านอาหารไทย คำนวณ GP, VAT, ต้นทุน และราคาต่ำสุดที่ไม่ขาดทุน" />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
+    <script>
+      // ตรวจสอบอัตโนมัติหากเปิดผ่าน GitHub Pages หรือเว็บเซิร์ฟเวอร์แบบสแตติกโดยไม่มี Vite
+      (function() {
+        var isViteDev = window.location.port === '3000' ||
+                        window.location.hostname === 'localhost' ||
+                        window.location.hostname === '127.0.0.1' ||
+                        window.location.hostname.indexOf('run.app') !== -1;
+        if (!isViteDev && !window.location.pathname.includes('/docs/')) {
+          var cleanPath = window.location.pathname.replace(/\/index\.html$/, '').replace(/\/$/, '');
+          window.location.replace(cleanPath + '/docs/index.html' + window.location.search + window.location.hash);
+        }
+      })();
+    </script>
   </head>
   <body>
     <noscript>
